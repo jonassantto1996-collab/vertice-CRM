@@ -7,7 +7,7 @@ CRM para aquisição, qualificação, tarefas, campanhas e conversão. Identidad
 - Código portado para Next.js 16 e Supabase Auth/Postgres.
 - Quatro migrations CRM já aplicadas no projeto `jucsyhcamxwgkshzkazv` em 24/09/2026. Não execute novamente nesse banco. Em uma instalação nova, aplique na ordem dos arquivos.
 - Dados existentes do motor/e-commerce não foram alterados nem importados para empresas do CRM. O ambiente anterior Sites não possuía empresas cadastradas na consulta feita nesta entrega.
-- Repositório: `jonassantto1996-collab/vertice-CRM`. A publicação na Vercel ainda está pendente. A demonstração anterior no Sites permanece separada.
+- Repositório: `jonassantto1996-collab/vertice-CRM`. Deploy de produção: https://vertice-crm-nu.vercel.app. A demonstração anterior no Sites permanece separada.
 - Instagram/WhatsApp têm receptor de webhook implementado, mas nenhuma conta Meta está vinculada. Sem envio automático de mensagens ou sincronização de gastos de anúncios.
 - Testes de banco com fixtures transacionais e rollback passaram. Build Next, TypeScript e testes de assinatura/normalização passaram.
 
@@ -15,7 +15,7 @@ CRM para aquisição, qualificação, tarefas, campanhas e conversão. Identidad
 
 Node >=22.13, npm. `npm ci`, copie `.env.example` para `.env.local`, `npm run dev`.
 
-O login e as operações do CRM usam apenas URL/chave publicável + sessão do usuário. A chave publicável é identificador público; RLS e funções validam autorização. `SUPABASE_SECRET_KEY` é somente servidor, necessária para captura externa e worker. Nunca use prefixo `NEXT_PUBLIC_` para segredos.
+O login e as operações do CRM usam apenas URL/chave publicável + sessão do usuário. Na instalação Vértice, a URL e a chave publicável do projeto autorizado têm valores padrão no código; o login pode inicializar mesmo sem copiar o arquivo de ambiente. Variáveis configuradas substituem esses valores. Para outro projeto, configure URL e chave correspondentes; uma URL diferente nunca reutiliza a chave padrão. A chave publicável é identificador público; RLS e funções validam autorização. `SUPABASE_SECRET_KEY` é somente servidor, necessária para captura externa e worker. Nunca use prefixo `NEXT_PUBLIC_` para segredos.
 
 `npm run build`, `npm run typecheck`, `npm test`.
 
