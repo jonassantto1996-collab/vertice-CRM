@@ -1,0 +1,50 @@
+-- Runs entirely inside a transaction; all fixtures are rolled back.
+begin;
+insert into auth.users(id,email,email_confirmed_at) values('11111111-1111-4111-8111-111111111111','crm-test-a@example.invalid',now()),('22222222-2222-4222-8222-222222222222','crm-test-b@example.invalid',now()),('33333333-3333-4333-8333-333333333333','crm-test-member@example.invalid',now());
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"11111111-1111-4111-8111-111111111111","role":"authenticated"}',true);
+select public.crm_bootstrap('Teste A','Fixture A','Teste');
+select public.crm_save('leads','{"name":"Lead fixture","value":100,"checks":[true,true,true,false]}');
+do $$ begin
+ if (select count(*) from public.crm_records where kind='leads' and data->>'score'='75' and data->>'stage'='Qualificado')<>1 then raise exception 'qualification failed';end if;
+ if (select count(*) from public.crm_records where kind='tasks')<>1 then raise exception 'followup failed';end if;
+end $$;
+select set_config('request.jwt.claims','{"sub":"22222222-2222-4222-8222-222222222222","role":"authenticated"}',true);
+select public.crm_bootstrap('Teste B','Fixture B','Teste');
+do $$ begin
+ begin perform public.crm_settings('Intruso','Teste','{}');exception when raise_exception then null;end;
+ if (select count(*) from public.crm_records)<>0 then raise exception 'tenant leak';end if;
+ if (select count(*) from public.crm_companies)<>1 then raise exception 'company leak';end if;
+ begin perform public.crm_save('leads','{"id":"99999999-9999-4999-8999-999999999999","name":"IDOR","stage":"Novo lead"}');raise exception 'IDOR accepted';exception when raise_exception then if sqlerrm='IDOR accepted' then raise;end if;end;
+ begin insert into public.crm_members values('33333333-3333-4333-8333-333333333333',crm_private.company(),'Intruso','crm-test-member@example.invalid','admin');raise exception 'role escalation accepted';exception when insufficient_privilege then null;end;
+ begin perform public.crm_claim();raise exception 'client worker access';exception when insufficient_privilege then null;end;
+end $$;
+reset role;
+insert into public.crm_members select '33333333-3333-4333-8333-333333333333',company_id,'Member','crm-test-member@example.invalid','member' from public.crm_members where user_id='11111111-1111-4111-8111-111111111111';
+set local role authenticated;
+select set_config('request.jwt.claims','{"sub":"33333333-3333-4333-8333-333333333333","role":"authenticated"}',true);
+do $$begin begin perform public.crm_token();raise exception 'member token escalation';exception when raise_exception then if sqlerrm='member token escalation' then raise;end if;end;end $$;
+reset role;
+do $$declare tid uuid; j uuid; lease uuid; n int; begin
+ select company_id into tid from public.crm_members where user_id='11111111-1111-4111-8111-111111111111';
+ insert into public.crm_jobs(company_id,dedup_key,payload) values(tid,'fixture:1','{"source":"Instagram","contactKey":"fixture:sender","name":"Fixture IG","message":"Olá"}') returning id into j;
+ select lease_token into lease from public.crm_claim(10) where id=j;
+ if lease is null then raise exception 'claim failed';end if;
+ if exists(select 1 from public.crm_claim(10) where id=j) then raise exception 'double claim';end if;
+ perform public.crm_process(j,lease);
+ if (select status from public.crm_jobs where id=j)<>'done' then raise exception 'process failed';end if;
+ insert into public.crm_jobs(company_id,dedup_key,payload) values(tid,'fixture:2','{"source":"Instagram","contactKey":"fixture:sender","name":"Fixture IG","message":"De novo"}') returning id into j;
+ select lease_token into lease from public.crm_claim(10) where id=j;
+ perform public.crm_process(j,lease);
+ select count(*) into n from public.crm_records where company_id=tid and kind='leads';
+ if n<>2 then raise exception 'contact dedup failed: %',n;end if;
+ insert into public.crm_jobs(company_id,dedup_key,payload) values(tid,'fixture:retry','{}') returning id into j;
+ select lease_token into lease from public.crm_claim(10) where id=j;
+ perform public.crm_retry(j,lease,'fixture');
+ if not exists(select 1 from public.crm_jobs where id=j and status='pending' and next_run>now()) then raise exception 'backoff failed';end if;
+ insert into public.crm_jobs(company_id,dedup_key,payload,status,attempts,lease_until) values(tid,'fixture:expired','{}','running',8,now()-interval '3 minutes') returning id into j;
+ perform public.crm_claim(10);
+ if (select status from public.crm_jobs where id=j)<>'failed' then raise exception 'expired final lease stuck';end if;
+end $$;
+rollback;
+select 'All database assertions passed; fixtures rolled back' as result;
